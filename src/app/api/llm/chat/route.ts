@@ -47,8 +47,9 @@ El usuario puede estar en cualquiera de estas pestañas: Concepto, Piedra Roseta
 Si te pregunta por algo específico, sugiérele qué pestaña explorar.`;
 
 export async function POST(req: NextRequest) {
+  let body: ChatRequest | null = null;
   try {
-    const body = (await req.json()) as ChatRequest;
+    body = (await req.json()) as ChatRequest;
     const messages = body.messages ?? [];
 
     if (messages.length === 0) {
@@ -89,9 +90,55 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ response, ok: true });
   } catch (e: any) {
     console.error('[llm/chat] error:', e);
-    return NextResponse.json(
-      { error: e?.message ?? 'Error interno', ok: false },
-      { status: 500 }
-    );
+    // Fallback amigable si el LLM no está disponible (p.ej. en Vercel sin .z-ai-config)
+    const lastUser = (body?.messages ?? []).slice().reverse().find(m => m.role === 'user')?.content ?? '';
+    const fallback = buildFallbackChatResponse(lastUser, body?.context);
+    return NextResponse.json({
+      response: fallback,
+      ok: true,
+      fallback: true,
+      warning: 'El LLM no está configurado en este entorno. Respuesta generada localmente.',
+    });
   }
+}
+
+function buildFallbackChatResponse(
+  userMessage: string,
+  context?: ChatRequest['context']
+): string {
+  const msg = userMessage.toLowerCase();
+  const tab = context?.tab ?? '';
+
+  // Patrones simples de respuesta
+  if (msg.includes('franc') && (msg.includes('diferente') || msg.includes('diferen') || msg.includes('por qué') || msg.includes('porque'))) {
+    return `El francés es el más divergente de las lenguas romances porque sufrió varios cambios fonéticos radicales: perdió el acento lexical, palatalizó /ka/ → /ʃa/ (CATU → chat), desarrolló vocales nasales fonémicas y redujo muchas vocales átonas a schwa /ə/. Míralo en la pestaña "Espacio Vectorial": el francés aparece muy separado del cluster ibérico.
+
+Para explorarlo más, prueba en "Piedra Roseta" el concepto "gato" o "noche" y verás las transformaciones fonéticas en acción.`;
+  }
+  if (msg.includes('pca') || msg.includes('componente') || msg.includes('álgebra') || msg.includes('algebra') || msg.includes('vector')) {
+    return `El Análisis de Componentes Principales (PCA) es una técnica de álgebra lineal que encuentra los ejes de máxima varianza en un conjunto de datos. En lingüística, aplicamos PCA al espacio de rasgos fonológicos de las lenguas: cada lengua es un vector de 19 dimensiones, y PCA nos da una proyección 2D que conserva la mayor parte de la variación.
+
+En la pestaña "Espacio Vectorial" puedes verlo visualizado: los puntos cerca comparten rasgos, los lejanos divergen. PC1 suele capturar la "cantidad de cambio fonético desde el latín" y PC2 la "dirección del cambio" (ibérico vs. galorromance).`;
+  }
+  if (msg.includes('base') || msg.includes('sinteti') || msg.includes('combin')) {
+    return `En el "Sintetizador" puedes elegir lenguas-base con pesos α. Si tratas cada lengua como un vector, una combinación lineal v = α₁·b₁ + α₂·b₂ + ... genera una "lengua híbrida" en el espacio de rasgos.
+
+Prueba combinando latín + francés + español con pesos altos y mira cómo se acerca o aleja de cada lengua real. El "error de reconstrucción" te dice cuánto se diferencia de la lengua objetivo.`;
+  }
+  if (msg.includes('cognado') || msg.includes('etim') || msg.includes('raíz') || msg.includes('raiz') || msg.includes('latín') || msg.includes('latin')) {
+    return `Un cognado es una palabra que comparte raíz etimológica con otra en una lengua distinta. En las lenguas romances, todos los cognados del vocabulario básico derivan del latín.
+
+Ejemplo: latín AQUA → español "agua", portugués "água", catalán "aigua", francés "eau", italiano "acqua", rumano "apă". Aunque se ven diferentes, todos vienen de la misma raíz.
+
+En la pestaña "Piedra Roseta" puedes ver estos cognados en paralelo. En "Aprender" pondrás a prueba tu capacidad de reconocerlos.`;
+  }
+  if (msg.includes('hola') || msg.includes('ayuda') || msg.includes('empezar')) {
+    return `¡Hola! Soy Rosetta, tu asistente para aprender lenguas romances. Te recomiendo empezar por la pestaña "Concepto" para entender la idea matemática, luego "Piedra Roseta" para ver cognados en paralelo, y "Aprender" para poner a prueba tu comprensión.
+
+¿Hay alguna lengua o concepto que te interese especialmente?`;
+  }
+
+  return `Buena pregunta. Te sugiero explorar la pestaña "${tab || 'Concepto'}" para más contexto.
+
+Nota: en este entorno el LLM no está completamente configurado, así que mis respuestas son limitadas. Para activar el asistente completo, configura el SDK z-ai-web-dev-sdk en tu despliegue (ver README).`;
 }

@@ -55,7 +55,10 @@ export function AssistantChat({ context }: AssistantChatProps) {
       });
       const data = await res.json();
       const response = data.response ?? 'Lo siento, no pude responder. Intenta reformular.';
-      setMessages([...newMessages, { role: 'assistant', content: response }]);
+      const prefix = data.fallback
+        ? 'ℹ️ **Modo offline** (LLM no configurado en este servidor). Respuesta local:\n\n'
+        : '';
+      setMessages([...newMessages, { role: 'assistant', content: prefix + response }]);
     } catch (e) {
       setMessages([
         ...newMessages,
