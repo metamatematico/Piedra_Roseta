@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { MessageCircle, Send, Loader2, Sparkles, X } from 'lucide-react';
+import { MessageCircle, Send, Loader2, Sparkles, X, Settings } from 'lucide-react';
+import { loadSettings, encodeSettingsHeader } from '@/lib/llm/providers';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -50,13 +51,16 @@ export function AssistantChat({ context }: AssistantChatProps) {
     try {
       const res = await fetch('/api/llm/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-llm-config': encodeSettingsHeader(loadSettings()),
+        },
         body: JSON.stringify({ messages: newMessages, context }),
       });
       const data = await res.json();
       const response = data.response ?? 'Lo siento, no pude responder. Intenta reformular.';
       const prefix = data.fallback
-        ? 'ℹ️ **Modo offline** (LLM no configurado en este servidor). Respuesta local:\n\n'
+        ? 'ℹ️ **Modo offline** (sin LLM configurado). Respuesta local:\n\n'
         : '';
       setMessages([...newMessages, { role: 'assistant', content: prefix + response }]);
     } catch (e) {

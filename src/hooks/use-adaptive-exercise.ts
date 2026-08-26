@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import type { Exercise } from '@/app/api/llm/exercise/route';
+import { loadSettings, encodeSettingsHeader } from '@/lib/llm/providers';
 
 interface HistoryItem {
   conceptId: string;
@@ -56,7 +57,10 @@ export function useAdaptiveExercise(opts: UseAdaptiveExerciseOptions = {}) {
     try {
       const res = await fetch('/api/llm/exercise', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-llm-config': encodeSettingsHeader(loadSettings()),
+        },
         body: JSON.stringify({
           level,
           history: history.map(h => ({ conceptId: h.conceptId, correct: h.correct })),

@@ -1,17 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import ZAI from 'z-ai-web-dev-sdk';
+import { chat } from '@/lib/llm/client';
+import { decodeSettingsHeader } from '@/lib/llm/providers';
 import { SWADESH } from '@/lib/linguistics/swadesh';
-import { LANGUAGES, getLanguage } from '@/lib/linguistics/languages';
-import { PHONETIC_FEATURES, FEATURE_MATRIX } from '@/lib/linguistics/features';
-
-// Explica por qué una respuesta fue correcta/incorrecta, en lenguaje accesible.
-// Útil para feedback pedagógico inmediato tras cada pregunta.
+import { LANGUAGES } from '@/lib/linguistics/languages';
+import { PHONETIC_FEATURES } from '@/lib/linguistics/features';
 
 export interface ExplainRequest {
   conceptId: string;
   answerText: string;
   correct: boolean;
-  userLang?: string; // lengua del estudiante (no usado aún)
 }
 
 export interface ExplainResponse {
@@ -27,16 +24,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Concepto no encontrado' }, { status: 400 });
     }
 
-    const zai = await ZAI.create();
-
     const formsTable = LANGUAGES
       .filter(l => l.code !== 'la')
       .map(l => `- ${l.name} (${l.code}): ${entry.forms[l.code]}`)
       .join('\n');
 
-    const prompt = `Eres un profesor didáctico de lingüística románica. Un estudiante respondió una pregunta sobre el concepto "${entry.gloss}".
+    const settings = decodeSettingsHeader(req.headers.get('x-llm-config'));
 
-Información:
+    // Si no hay LLM, fallback local
+    if (!settings) {
+      return NextResponse.json({
+        explanation: body.correct
+          ? `¡Bien hecho! «${body.answerText}» comparte raíz con el latín ${entry.latin}.`
+          : `La respuesta correcta derivaba del latín ${entry.latin}.`,
+        pattern: `Etimón: ${entry.latin}`,
+      } satisfies ExplainResponse);
+    }
+
+    const prompt = `Un estudiante respondió una pregunta sobre el concepto "${entry.gloss}".
+
 - Etimón latino: ${entry.latin}
 - Respuesta del estudiante: "${body.answerText}"
 - ¿Correcta?: ${body.correct ? 'SÍ' : 'NO'}
@@ -44,26 +50,24 @@ Información:
 Formas romances del concepto:
 ${formsTable}
 
-Patrones fonológicos relevantes (matriz):
-${PHONETIC_FEATURES.slice(0, 8).map((f, i) => `- ${f.name}`).join('\n')}
+Patrones fonológicos relevantes:
+${PHONETIC_FEATURES.slice(0, 8).map(f => `- ${f.name}`).join('\n')}
 
 Tarea:
-- Si la respuesta fue correcta, refuerza por qué (qué patrón fonético ilustra).
-- Si fue incorrecta, explica amablemente cuál era la respuesta correcta y por qué, mencionando el patrón fonético.
-- Usa máximo 2-3 frases, lenguaje simple, sin jerga técnica innecesaria.
-- Termina con una pista corta sobre cómo recordar el patrón.
+- Si fue correcta, refuerza por qué (qué patrón fonético ilustra).
+- Si fue incorrecta, explica amablemente la respuesta correcta.
+- Máximo 2-3 frases, lenguaje simple.
+- Termina con una pista corta.
 
-Responde SOLO con JSON: {"explanation": "...", "pattern": "..."}`;
+Responde SOLO JSON: {"explanation": "...", "pattern": "..."}`;
 
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: 'assistant', content: 'Eres un profesor de lingüística románica amable y claro. Respondes SOLO con JSON válido.' },
-        { role: 'user', content: prompt },
-      ],
-      thinking: { type: 'disabled' },
-    });
+    const result = await chat(
+      [{ role: 'user', content: prompt }],
+      settings,
+      { temperature: 0.5, maxTokens: 400 }
+    );
 
-    const raw = completion.choices[0]?.message?.content ?? '';
+    const raw = result.content;
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       try {
@@ -77,7 +81,6 @@ Responde SOLO con JSON: {"explanation": "...", "pattern": "..."}`;
       }
     }
 
-    // Fallback: explicación local simple
     return NextResponse.json({
       explanation: body.correct
         ? `¡Bien hecho! «${body.answerText}» comparte raíz con el latín ${entry.latin}.`

@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import ZAI from 'z-ai-web-dev-sdk';
+import { chat } from '@/lib/llm/client';
+import { decodeSettingsHeader } from '@/lib/llm/providers';
 import { SWADESH } from '@/lib/linguistics/swadesh';
 import { LANGUAGES, getLanguage } from '@/lib/linguistics/languages';
-
-// Genera un ejercicio adaptativo según el nivel y desempeño del usuario.
-// Niveles: 1 (principiante) → 5 (experto). El historial se usa para no repetir.
 
 export interface ExerciseRequest {
   level: 1 | 2 | 3 | 4 | 5;
   history: { conceptId: string; correct: boolean }[];
-  focusLanguage?: string; // código ISO opcional para enfocar
+  focusLanguage?: string;
 }
 
 export interface Exercise {
@@ -30,27 +28,27 @@ export interface Exercise {
 const LEVEL_PROFILES: Record<number, { kind: Exercise['kind']; pool: string[]; distractors: number; description: string }> = {
   1: {
     kind: 'cognate-match',
-    pool: ['water', 'fire', 'sun', 'moon', 'hand', 'foot', 'eye', 'dog', 'fish', 'tree'],
+    pool: ['water', 'fire', 'sun', 'moon', 'hand', 'foot', 'dog', 'fish', 'tree'],
     distractors: 3,
-    description: 'Principiante: emparejar cognados obvios (rasgos muy conservados).',
+    description: 'Principiante: emparejar cognados obvios.',
   },
   2: {
     kind: 'identify-ancestor',
     pool: ['man', 'woman', 'one', 'two', 'three', 'heart', 'blood', 'night'],
     distractors: 3,
-    description: 'Básico: reconocer la raíz latina a partir de formas romances.',
+    description: 'Básico: reconocer la raíz latina.',
   },
   3: {
     kind: 'which-is-not',
     pool: ['eat', 'drink', 'see', 'come', 'sleep', 'die', 'big', 'small', 'long', 'good'],
     distractors: 3,
-    description: 'Intermedio: detectar el intruso entre cognados.',
+    description: 'Intermedio: detectar el intruso.',
   },
   4: {
     kind: 'explain-pattern',
     pool: ['star', 'stone', 'rain', 'mountain', 'bird', 'we', 'who', 'what'],
     distractors: 3,
-    description: 'Avanzado: explicar por qué un par de cognados se relacionan.',
+    description: 'Avanzado: explicar por qué dos cognados se relacionan.',
   },
   5: {
     kind: 'predict-evolution',
@@ -66,7 +64,6 @@ export async function POST(req: NextRequest) {
     const level = body.level ?? 1;
     const profile = LEVEL_PROFILES[level] ?? LEVEL_PROFILES[1];
 
-    // Filtrar conceptos ya usados en el historial reciente (últimos 8)
     const recent = (body.history ?? []).slice(-8).map(h => h.conceptId);
     const candidates = profile.pool.filter(id => !recent.includes(id));
     const pool = candidates.length > 0 ? candidates : profile.pool;
@@ -77,21 +74,19 @@ export async function POST(req: NextRequest) {
     }
 
     const romanceLangs = LANGUAGES.filter(l => l.code !== 'la');
+    const settings = decodeSettingsHeader(req.headers.get('x-llm-config'));
 
-    // Si el usuario está acertando mucho, le pedimos al LLM una pregunta más retadora
+    // Si hay LLM configurado, intentar generarlo; si no, fallback local
     const recentCorrect = (body.history ?? []).slice(-5).filter(h => h.correct).length;
-    const useLLM = level >= 4 || (recentCorrect >= 4 && level >= 2);
+    const useLLM = !!settings && (level >= 4 || (recentCorrect >= 4 && level >= 2));
 
     if (useLLM) {
-      // Generar ejercicio con LLM (más rico pedagógicamente)
-      const exercise = await generateLLMExercise(entry, level, profile.kind, romanceLangs, body.focusLanguage);
+      const exercise = await generateLLMExercise(entry, level, profile.kind, romanceLangs, settings);
       if (exercise) {
         return NextResponse.json(exercise);
       }
-      // Si falla, cae al generador local
     }
 
-    // Generador local determinista (rápido)
     const exercise = generateLocalExercise(entry, profile, romanceLangs);
     return NextResponse.json(exercise);
   } catch (e: any) {
@@ -140,7 +135,7 @@ function generateLocalExercise(
           text: entry.forms[d.code],
           sub: getLanguage(d.code).name,
           correct: false,
-          explanation: `«${entry.forms[d.code]}» significa «${entry.gloss}» en ${getLanguage(d.code).name}, pero no es la pareja buscada en esta ronda.`,
+          explanation: `«${entry.forms[d.code]}» significa «${entry.gloss}» en ${getLanguage(d.code).name}, pero no es la pareja buscada.`,
         })),
       ]),
       conceptId: entry.id,
@@ -206,46 +201,41 @@ function generateLocalExercise(
 async function generateLLMExercise(
   entry: typeof SWADESH[number],
   level: number,
-  _kind: Exercise['kind'],
+  kind: Exercise['kind'],
   romanceLangs: typeof LANGUAGES,
-  focusLanguage?: string
+  settings: any
 ): Promise<Exercise | null> {
   try {
-    const zai = await ZAI.create();
     const examples = romanceLangs.map(l => `${l.name} (${l.code}): ${entry.forms[l.code] ?? '—'}`).join('\n');
-
-    const prompt = `Eres un profesor de lingüística románica. Genera UN ejercicio de nivel ${level}/5 sobre el concepto "${entry.gloss}" (etimón latino: ${entry.latin}).
+    const prompt = `Genera UN ejercicio de nivel ${level}/5 sobre el concepto "${entry.gloss}" (etimón latino: ${entry.latin}).
 
 Formas en varias lenguas:
 ${examples}
 
-Instrucciones:
-- Devuelve EXCLUSIVAMENTE JSON válido, sin texto adicional ni markdown.
-- El JSON debe tener esta forma exacta:
+Devuelve EXACTAMENTE este JSON (sin markdown, sin texto adicional):
 {
   "kind": "${level >= 5 ? 'predict-evolution' : level >= 4 ? 'explain-pattern' : 'cognate-match'}",
-  "prompt": "string, pregunta clara para el estudiante",
-  "hint": "string, pista breve",
+  "prompt": "pregunta clara para el estudiante",
+  "hint": "pista breve",
   "options": [
-    {"text": "string", "sub": "string opcional (nombre de lengua)", "correct": true|false, "explanation": "string"}
+    {"text": "string", "sub": "nombre de lengua opcional", "correct": true|false, "explanation": "explicación pedagógica"}
   ]
 }
+
+Reglas:
 - Exactamente 4 opciones, solo 1 correcta.
-- Las explicaciones deben enseñar un patrón fonético (ej: latín CT → it tt, es ch, fr it).
-- Nivel ${level}: ${level >= 4 ? 'preguntas que requieren razonar sobre cambios fonéticos' : 'preguntas de reconocimiento de cognados'}.
-- Todo en español, accesible para un estudiante principiante.
-- La respuesta correcta debe ser una forma real de las mostradas arriba (o el etimón latino).`;
+- Las explicaciones deben enseñar un patrón fonético.
+- Todo en español, accesible para principiantes.
+- La respuesta correcta debe ser una forma real mostrada arriba o el etimón latino.`;
 
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: 'assistant', content: 'Eres un profesor experto en lingüística románica que crea ejercicios didácticos. Respondes SOLO con JSON válido.' },
-        { role: 'user', content: prompt },
-      ],
-      thinking: { type: 'disabled' },
-    });
+    const { chat } = await import('@/lib/llm/client');
+    const result = await chat(
+      [{ role: 'user', content: prompt }],
+      settings,
+      { temperature: 0.8, maxTokens: 800 }
+    );
 
-    const raw = completion.choices[0]?.message?.content ?? '';
-    // Extraer JSON aunque venga con markdown
+    const raw = result.content;
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
     const parsed = JSON.parse(jsonMatch[0]);

@@ -7,29 +7,63 @@ import { RosettaView } from '@/components/rosetta/rosetta-view';
 import { VectorSpaceView } from '@/components/rosetta/vector-space-view';
 import { SynthesizerView } from '@/components/rosetta/synthesizer-view';
 import { LearnView } from '@/components/rosetta/learn-view';
+import { SplashScreen } from '@/components/rosetta/splash-screen';
+import { LLMConfigButton } from '@/components/rosetta/llm-config-button';
 import { BookOpen, Languages, Box, FlaskConical, Brain } from 'lucide-react';
+
+const SPLASH_KEY = 'piedra-roseta-splash-seen';
+
+// Inicializador perezoso: se ejecuta solo en el primer render del cliente
+function getInitialSplash(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return !window.localStorage.getItem(SPLASH_KEY);
+  } catch {
+    return true;
+  }
+}
 
 export default function Home() {
   const [tab, setTab] = useState('concept');
+  const [showSplash, setShowSplash] = useState(getInitialSplash);
+
+  const handleEnter = () => {
+    setShowSplash(false);
+    try {
+      window.localStorage.setItem(SPLASH_KEY, '1');
+    } catch {}
+  };
+
+  const replaySplash = () => {
+    setShowSplash(true);
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header */}
       <header className="border-b bg-gradient-to-r from-amber-50 via-stone-50 to-rose-50 dark:from-amber-950/20 dark:via-stone-950/20 dark:to-rose-950/20">
-        <div className="max-w-6xl mx-auto px-4 py-6">
-          <div className="flex items-center gap-3 mb-2">
-            <span className="text-4xl">🪨</span>
-            <div>
-              <h1 className="font-serif text-3xl font-bold tracking-tight">
+        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
+          <button
+            onClick={replaySplash}
+            className="flex items-center gap-3 group"
+            title="Ver introducción de nuevo"
+          >
+            <span className="text-3xl group-hover:scale-110 transition-transform">🪨</span>
+            <div className="text-left">
+              <h1 className="font-serif text-xl sm:text-2xl font-bold tracking-tight leading-none">
                 Sistema Piedra Roseta
               </h1>
-              <p className="text-sm text-muted-foreground">
-                Álgebra lineal aplicada al aprendizaje de familias lingüísticas
+              <p className="text-[10px] sm:text-xs text-muted-foreground">
+                Leonardo Jiménez Martínez · BIOMAT · con GLM (Z.ai)
               </p>
             </div>
-          </div>
+          </button>
+          <LLMConfigButton />
         </div>
       </header>
+
+      {/* Splash screen */}
+      {showSplash && <SplashScreen onEnter={handleEnter} />}
 
       {/* Main */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
@@ -77,14 +111,17 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="border-t mt-auto bg-muted/30">
-        <div className="max-w-6xl mx-auto px-4 py-6 text-center text-xs text-muted-foreground">
+        <div className="max-w-6xl mx-auto px-4 py-6 text-center text-xs text-muted-foreground space-y-1">
           <p>
-            Sistema Piedra Roseta · Lingüística matemática interactiva ·
-            Datos basados en WALS, PHOIBLE y listas de Swadesh
+            <strong>Sistema Piedra Roseta</strong> · Lingüística matemática interactiva
           </p>
-          <p className="mt-1">
-            PCA implementado desde cero (power iteration + deflación) ·
-            Sin dependencias externas de ML
+          <p>
+            Desarrollado por <strong>Leonardo Jiménez Martínez</strong> · Centro de Biomatemáticas BIOMAT
+            {' '}·{' '}
+            con asistencia de <strong>GLM (Z.ai)</strong>
+          </p>
+          <p className="opacity-70">
+            PCA implementado desde cero · Datos basados en WALS, PHOIBLE y listas de Swadesh
           </p>
         </div>
       </footer>

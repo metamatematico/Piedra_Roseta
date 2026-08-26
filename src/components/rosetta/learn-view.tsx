@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Brain, Check, X, RefreshCw, Trophy, Lightbulb, Sparkles, Loader2, TrendingUp, BookOpen } from 'lucide-react';
 import { getLanguage } from '@/lib/linguistics/languages';
+import { loadSettings, encodeSettingsHeader } from '@/lib/llm/providers';
 import { AssistantChat } from './assistant-chat';
 
 export function LearnView() {
@@ -39,7 +40,10 @@ export function LearnView() {
       try {
         const res = await fetch('/api/llm/explain', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-llm-config': encodeSettingsHeader(loadSettings()),
+          },
           body: JSON.stringify({
             conceptId: adaptive.exercise.conceptId,
             answerText: adaptive.exercise.options[i].text,

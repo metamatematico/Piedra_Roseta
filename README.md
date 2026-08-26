@@ -12,29 +12,77 @@ catalán, occitano, francés, italiano, sardo, rumano).
 
 ---
 
+## 👥 Autoría
+
+- **Leonardo Jiménez Martínez** — Centro de Biomatemáticas **BIOMAT**
+- **GLM (Z.ai)** — Asistencia de IA en el desarrollo
+
+---
+
 ## ✨ Características
+
+### Cortinilla pedagógica de entrada
+
+Al entrar por primera vez, el sistema muestra una **introducción animada en 4 fases**
+que explica desde cero:
+1. Qué fue la piedra de Rosetta original
+2. La idea matemática de tratar lenguas como vectores
+3. Cómo el álgebra lineal permite «generar» lenguas
+4. Qué encontrará el usuario en cada pestaña
+
+(Puede saltarse y volverse a ver haciendo clic en el logo del header.)
 
 ### 5 módulos interactivos
 
 1. **Concepto** — Marco teórico: por qué una lengua es un vector, qué es una base
-   lingüística, referencias científicas (Nerbonne, Wieling, Swadesh, WALS, PHOIBLE).
+   lingüística, referencias científicas.
 2. **Piedra Roseta** — Vista comparativa multilingüe: 40 conceptos de la lista de
    Swadesh mostrados paralelamente en 10 lenguas, con latín como ancestro común.
 3. **Espacio Vectorial** — Visualización PCA 2D interactiva implementada desde cero
-   (power iteration + deflación), con matriz de distancias euclidianas entre lenguas
-   y vectores de carga de cada rasgo fonológico.
+   (power iteration + deflación), con matriz de distancias euclidianas y vectores
+   de carga de cada rasgo fonológico.
 4. **Sintetizador** — Editor de bases con pesos α (sliders) que aplica la fórmula
    `v = α₁·b₁ + α₂·b₂ + …` para generar una lengua híbrida y mide el error de
    reconstrucción frente a cualquier lengua objetivo.
 5. **Aprender** — Quiz adaptativo con IA: 5 niveles de dificultad, ajuste automático
-   según desempeño, explicaciones pedagógicas personalizadas generadas por LLM cuando
-   fallas, y chat con «Rosetta», el asistente pedagógico.
+   según desempeño, explicaciones pedagógicas personalizadas cuando fallas.
 
-### Asistente pedagógico «Rosetta»
+### Asistente pedagógico «Rosetta» 🪨
 
-Chat con IA disponible en todas las pestañas. Contextual: sabe en qué pestaña estás,
-qué lengua o concepto tienes seleccionado, y responde dudas de lingüística romance
-o de álgebra lineal en lenguaje simple.
+Chat con IA disponible en todas las pestañas. **Contextual**: sabe en qué pestaña
+estás, qué lengua o concepto tienes seleccionado, y responde dudas de lingüística
+romance o de álgebra lineal en lenguaje simple. El system prompt del asistente
+incluye el estado completo del sistema para que pueda «navegar» conceptualmente
+entre las 5 pestañas.
+
+---
+
+## 🤖 Configuración del LLM (multi-provider)
+
+El sistema soporta **4 proveedores de IA** intercambiables. Las credenciales se
+guardan en `localStorage` del navegador (nunca en el servidor) y se envían al
+backend como header `x-llm-config` (base64 JSON).
+
+Para configurar, haz clic en el botón **«Configurar IA»** (arriba a la derecha).
+
+| Proveedor | Modelo recomendado | ¿API key? | Notas |
+|-----------|---------------------|-----------|-------|
+| **Anthropic Claude** | `claude-sonnet-4-5-20250929` | Sí (`sk-ant-...`) | Recomendado para razonamiento pedagógico |
+| **OpenAI** | `gpt-4o-mini` | Sí (`sk-...`) | GPT-4o y GPT-3.5 también disponibles |
+| **Compatible OpenAI** | `llama-3.3-70b-versatile` | Sí + baseUrl | Groq, Together, OpenRouter, etc. |
+| **Z.ai (GLM)** | `glm-4.6` | No (auto) | Solo en el sandbox Z.ai |
+
+**Sin configurar**, el sistema funciona en **modo offline**: las páginas estáticas
+y el quiz con fallback local siguen operativos; el asistente da respuestas
+predefinidas sobre temas comunes.
+
+### Cómo obtener una API key de Anthropic
+
+1. Ve a https://console.anthropic.com/settings/keys
+2. Crea una nueva key (empieza con `sk-ant-...`)
+3. Pégala en el modal «Configurar IA» del sistema
+4. Selecciona el modelo (recomendado: `claude-sonnet-4-5-20250929`)
+5. Guarda. ¡Listo! El asistente y los ejercicios adaptativos usarán Claude.
 
 ---
 
@@ -63,7 +111,7 @@ Esto es la **generación lineal de lenguas**.
 
 - **Framework**: Next.js 16 (App Router) + TypeScript 5
 - **UI**: Tailwind CSS 4 + shadcn/ui + Lucide icons
-- **IA**: z-ai-web-dev-sdk (LLM en el backend únicamente)
+- **IA**: sistema multi-provider (Anthropic, OpenAI, Z.ai, compatibles OpenAI)
 - **Visualización**: SVG nativo (sin librerías de charting)
 - **PCA**: implementación desde cero (sin dependencias ML externas)
 
@@ -80,6 +128,9 @@ bun run dev
 
 # Verificar lint
 bun run lint
+
+# Build de producción
+bun run build
 ```
 
 Abre [http://localhost:3000](http://localhost:3000) en tu navegador.
@@ -91,14 +142,12 @@ Abre [http://localhost:3000](http://localhost:3000) en tu navegador.
 1. Sube este repositorio a GitHub.
 2. En [vercel.com](https://vercel.com), importa el repo.
 3. Vercel detecta automáticamente Next.js — no requiere configuración extra.
-4. (Opcional) Si necesitas base de datos, añade una variable de entorno
-   `DATABASE_URL` en Vercel con una URL de Prisma-compatible (PostgreSQL, MySQL,
-   o SQLite para desarrollo).
-5. Deploy. ✅
+4. Deploy. ✅
+5. Una vez desplegado, entra a la app, haz clic en **«Configurar IA»** y pega tu
+   API key de Anthropic (u otro proveedor).
 
-> El SDK `z-ai-web-dev-sdk` se configura automáticamente en entornos Z.ai.
-> Si despliegas fuera del ecosistema Z.ai, necesitarás configurar las credenciales
-> del SDK según su documentación.
+> Las API keys se guardan en el navegador del usuario, no en el servidor.
+> No necesitas configurar variables de entorno en Vercel para que funcione.
 
 ---
 
@@ -111,20 +160,25 @@ src/
 │   │   ├── exercise/     # Genera ejercicios adaptativos
 │   │   ├── explain/      # Explica respuestas correctas/incorrectas
 │   │   └── chat/         # Asistente pedagógico Rosetta
-│   ├── page.tsx          # Página principal con 5 tabs
+│   ├── page.tsx          # Página principal con 5 tabs + splash
 │   └── layout.tsx
 ├── components/
 │   ├── rosetta/
+│   │   ├── splash-screen.tsx        # Cortinilla pedagógica de entrada
+│   │   ├── llm-config-button.tsx    # Modal de configuración multi-provider
+│   │   ├── assistant-chat.tsx       # Chat con Rosetta
 │   │   ├── concept-view.tsx
 │   │   ├── rosetta-view.tsx
 │   │   ├── vector-space-view.tsx
 │   │   ├── synthesizer-view.tsx
-│   │   ├── learn-view.tsx
-│   │   └── assistant-chat.tsx
+│   │   └── learn-view.tsx
 │   └── ui/               # shadcn/ui components
 ├── hooks/
 │   └── use-adaptive-exercise.ts
 └── lib/
+    ├── llm/
+    │   ├── providers.ts  # 4 providers + persistencia en localStorage
+    │   └── client.ts     # Cliente unificado con fallback en cascada
     ├── linguistics/
     │   ├── languages.ts  # 10 lenguas romances + metadatos
     │   ├── swadesh.ts    # 40 conceptos en 10 lenguas
@@ -146,16 +200,8 @@ src/
 
 ---
 
-## 🎯 Próximos pasos sugeridos
-
-- Añadir más lenguas romances menores (asturiano, aragonés, ladino, francoprovenzal)
-- Ampliar a otras familias (germánicas, eslavas) para verificar la generalidad del método
-- Implementar persistencia de progreso del estudiante (Prisma + SQLite)
-- Exportar/importar combinaciones de bases como JSON
-- Añadir modo «aula» para profesores con seguimiento de estudiantes
-
----
-
 ## 📄 Licencia
 
 MIT — libre uso educativo y de investigación.
+
+Copyright (c) 2026 Leonardo Jiménez Martínez · Centro de Biomatemáticas BIOMAT
