@@ -5,12 +5,13 @@ import { reconstructFromBases } from '@/lib/linguistics/pca';
 import { LANGUAGES, getLanguage } from '@/lib/linguistics/languages';
 import { PHONETIC_FEATURES, FEATURE_MATRIX } from '@/lib/linguistics/features';
 import { SWADESH } from '@/lib/linguistics/swadesh';
-import { PHONETICS, synthesizeHybrid, transcribeToPhonemes } from '@/lib/linguistics/phonetics';
+import { PHONETICS } from '@/lib/linguistics/phonetics';
+import { synthesizeHybridPhonetic, graphemesToPhonemes } from '@/lib/linguistics/phoneme-space';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
-import { Sparkles, Wand2, FlaskConical, Plus, X, Volume2, Ear } from 'lucide-react';
+import { Sparkles, Wand2, FlaskConical, Plus, X, Volume2, Ear, Activity } from 'lucide-react';
 import { SpeakButton } from './speak-button';
 import { AssistantChat } from './assistant-chat';
 
@@ -26,6 +27,8 @@ const DEFAULT_BASES: BaseWeight[] = [
 
 const PRESET_RECIPES = [
   { name: 'Español ↔ Francés (50/50)', bases: [{ code: 'es', weight: 1 }, { code: 'fr', weight: 1 }] },
+  { name: 'Esp. 70% + Fr. 30%', bases: [{ code: 'es', weight: 0.7 }, { code: 'fr', weight: 0.3 }] },
+  { name: 'Esp. 30% + Fr. 70%', bases: [{ code: 'es', weight: 0.3 }, { code: 'fr', weight: 0.7 }] },
   { name: 'Ibérico puro', bases: [{ code: 'es', weight: 1 }, { code: 'pt', weight: 1 }, { code: 'gl', weight: 0.5 }] },
   { name: 'Galo + Ítalo', bases: [{ code: 'fr', weight: 1 }, { code: 'it', weight: 1 }] },
   { name: 'Latín + moderno', bases: [{ code: 'la', weight: 1.5 }, { code: 'es', weight: 0.5 }, { code: 'fr', weight: 0.5 }] },
@@ -48,8 +51,8 @@ export function SynthesizerView() {
     [pickedWord]
   );
 
-  // SÍNTESIS FONÉTICA REAL: combinar las formas léxicas
-  const hybridSynthesis = useMemo(() => {
+  // SÍNTESIS FONÉTICA INTERPOLADA (la nueva, que sí produce fonemas nuevos)
+  const hybrid = useMemo(() => {
     const basesWithForms = bases
       .filter(b => b.weight > 0)
       .map(b => {
@@ -57,7 +60,7 @@ export function SynthesizerView() {
         return { code: b.code, form, weight: b.weight };
       })
       .filter(b => b.form.length > 0);
-    return synthesizeHybrid(basesWithForms);
+    return synthesizeHybridPhonetic(basesWithForms);
   }, [bases, currentEntry]);
 
   const addBase = (code: string) => {
@@ -81,16 +84,15 @@ export function SynthesizerView() {
   const baseTranscriptions = useMemo(() => {
     return bases.map(b => {
       const form = b.code === 'la' ? currentEntry.latin : currentEntry.forms[b.code] ?? '';
-      const trans = transcribeToPhonemes(form, b.code);
+      const phonemes = graphemesToPhonemes(form, b.code);
       const phon = PHONETICS[b.code];
       return {
         code: b.code,
         form,
-        phonemes: trans.simplified,
-        ipa: trans.ipa,
+        phonemes,
+        ipa: '/' + phonemes.join('') + '/',
         bcp47: phon?.bcp47 ?? 'es-ES',
         fallback: phon?.fallbackBcp47,
-        rules: trans.rules,
       };
     });
   }, [bases, currentEntry]);
@@ -101,13 +103,13 @@ export function SynthesizerView() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FlaskConical className="h-5 w-5" />
-            Sintetizador Fonético de Lenguas
+            Sintetizador Fonético Interpolado
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Combina <strong>linealmente</strong> las formas léxicas de varias lenguas-base.
-            El sistema aplica las reglas fonéticas de cada lengua, vota ponderadamente por
-            cada fonema según los pesos α, y produce una <strong>lengua híbrida pronunciable</strong>.
-            ¡Escúchala y compárala con las originales!
+            Aquí sí surge una lengua nueva: cada fonema se <strong>interpola linealmente</strong>
+            en un espacio de rasgos articulatorios (lugar, modo, sonoridad, nasalidad, altura
+            vocálica...). Mezclar /o/ + /u/ al 50% produce un fonema intermedio como /o̞/,
+            no uno de los dos. <strong>Escucha la diferencia.</strong>
           </p>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -145,7 +147,6 @@ export function SynthesizerView() {
             <div className="space-y-3">
               {bases.map(b => {
                 const lang = getLanguage(b.code);
-                const phon = PHONETICS[b.code];
                 return (
                   <div
                     key={b.code}
@@ -223,12 +224,12 @@ export function SynthesizerView() {
             </div>
           </div>
 
-          {/* Resultado: forma híbrida + audio */}
+          {/* RESULTADO: lengua híbrida interpolada */}
           <Card className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 border-emerald-200 dark:border-emerald-900">
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-lg">
                 <Sparkles className="h-4 w-4" />
-                Lengua híbrida sintetizada
+                Lengua híbrida interpolada
               </CardTitle>
               <p className="text-xs text-muted-foreground">
                 «{currentEntry.gloss}» · etimón latino: <code className="font-mono">{currentEntry.latin}</code>
@@ -236,31 +237,88 @@ export function SynthesizerView() {
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Forma híbrida con audio */}
-              <div className="text-center py-4 rounded-lg bg-background/60 border">
+              <div className="text-center py-6 rounded-lg bg-background/60 border-2 border-emerald-300 dark:border-emerald-700">
                 <p className="text-xs uppercase text-muted-foreground mb-2">
-                  Forma sintetizada
+                  Forma sintetizada (¡es una lengua nueva!)
                 </p>
-                <div className="flex items-center justify-center gap-3 mb-2">
-                  <p className="font-serif text-4xl">{hybridSynthesis.hybridForm || '—'}</p>
+                <div className="flex items-center justify-center gap-4 mb-3">
+                  <p className="font-serif text-5xl">{hybrid.writtenForm || '—'}</p>
                   <SpeakButton
-                    text={hybridSynthesis.hybridForm}
-                    lang={hybridSynthesis.bcp47Guess}
+                    text={hybrid.ttsString || hybrid.writtenForm}
+                    lang={hybrid.bcp47Guess}
+                    rate={0.75}
                     size="lg"
                     variant="default"
                   />
                 </div>
-                <p className="font-mono text-sm text-emerald-700 dark:text-emerald-400">
-                  {hybridSynthesis.hybridIPA}
+                <p className="font-mono text-lg text-emerald-700 dark:text-emerald-400">
+                  {hybrid.ipaString}
                 </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Pronunciada con voz {hybridSynthesis.bcp47Guess}
+                <p className="text-xs text-muted-foreground mt-2">
+                  {hybrid.summary}
                 </p>
+              </div>
+
+              {/* Visualización fonema por fonema (con barras de mezcla) */}
+              <div>
+                <p className="text-xs uppercase text-muted-foreground mb-2 flex items-center gap-1">
+                  <Activity className="h-3 w-3" />
+                  Descomposición fonética (interpolación)
+                </p>
+                <div className="space-y-2">
+                  {hybrid.phonemes.map((ph, i) => (
+                    <div
+                      key={i}
+                      className={`rounded border p-3 ${
+                        ph.isInterpolated
+                          ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700'
+                          : 'bg-background border-border'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono text-2xl font-bold">
+                            /{ph.symbol}/
+                          </span>
+                          {ph.isInterpolated && (
+                            <Badge variant="secondary" className="text-xs">
+                              <Sparkles className="h-3 w-3 mr-1" />
+                              interpolado
+                            </Badge>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          pos {i + 1}
+                        </span>
+                      </div>
+                      {/* Barras de mezcla por lengua */}
+                      <div className="flex h-3 rounded overflow-hidden border">
+                        {ph.sources.map((s, j) => {
+                          const lang = getLanguage(bases[j]?.code ?? 'es');
+                          return (
+                            <div
+                              key={j}
+                              style={{
+                                width: `${s.weight * 100}%`,
+                                backgroundColor: lang.color,
+                              }}
+                              title={`${lang.name}: /${s.symbol}/ → ${(s.weight * 100).toFixed(0)}%`}
+                            />
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        {ph.blendDescription}
+                      </p>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* Comparación: cada lengua base + la híbrida */}
               <div>
                 <p className="text-xs uppercase text-muted-foreground mb-2">
-                  Comparación fonética
+                  Comparación auditiva
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                   {baseTranscriptions.map(t => {
@@ -283,7 +341,7 @@ export function SynthesizerView() {
                           <div className="flex-1">
                             <p className="font-serif text-xl">{t.form}</p>
                             <p className="font-mono text-xs text-muted-foreground">
-                              /{t.phonemes}/
+                              {t.ipa}
                             </p>
                           </div>
                           <SpeakButton
@@ -310,39 +368,20 @@ export function SynthesizerView() {
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex-1">
-                        <p className="font-serif text-xl">{hybridSynthesis.hybridForm || '—'}</p>
+                        <p className="font-serif text-xl">{hybrid.writtenForm || '—'}</p>
                         <p className="font-mono text-xs text-emerald-700 dark:text-emerald-400">
-                          {hybridSynthesis.hybridIPA}
+                          {hybrid.ipaString}
                         </p>
                       </div>
                       <SpeakButton
-                        text={hybridSynthesis.hybridForm}
-                        lang={hybridSynthesis.bcp47Guess}
-                        rate={0.85}
+                        text={hybrid.ttsString || hybrid.writtenForm}
+                        lang={hybrid.bcp47Guess}
+                        rate={0.75}
                       />
                     </div>
                   </div>
                 </div>
               </div>
-
-              {/* Reglas aplicadas */}
-              {hybridSynthesis.rules.length > 0 && (
-                <div>
-                  <p className="text-xs uppercase text-muted-foreground mb-2 flex items-center gap-1">
-                    <Wand2 className="h-3 w-3" /> Reglas de síntesis (votación ponderada)
-                  </p>
-                  <div className="space-y-1 max-h-40 overflow-y-auto">
-                    {hybridSynthesis.rules.slice(0, 8).map((r, i) => (
-                      <div
-                        key={i}
-                        className="text-xs font-mono p-2 rounded bg-background/60 border"
-                      >
-                        <span className="text-muted-foreground">{r.reason}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </CardContent>
           </Card>
 
@@ -410,21 +449,21 @@ export function SynthesizerView() {
               <Ear className="h-5 w-5 flex-shrink-0 text-blue-600 dark:text-blue-400 mt-0.5" />
               <div className="text-sm text-muted-foreground space-y-2">
                 <p>
-                  <strong className="text-foreground">¿Qué estás escuchando?</strong> La forma
-                  híbrida es una <em>combinación lineal real</em>: para cada posición de fonema,
-                  el sistema vota ponderadamente entre las lenguas-base según sus pesos α.
+                  <strong className="text-foreground">¿Por qué ahora sí suena distinto?</strong>{' '}
+                  Cada fonema es un vector de rasgos articulatorios (lugar, modo, sonoridad,
+                  nasalidad, altura vocálica, etc.). Al combinar <code className="font-mono">español "noche" /notʃe/</code> +{' '}
+                  <code className="font-mono">francés "nuit" /nɥi/</code> al 50%, cada posición se interpola:
                 </p>
+                <ul className="list-disc pl-5 space-y-1 ml-2">
+                  <li>Pos 1: /n/ + /n/ → /n/ (idéntica, sin mezcla)</li>
+                  <li>Pos 2: /o/ + /ɥ/ → fonema intermedio entre vocal posterior redondeada y semivocal anterior redondeada</li>
+                  <li>Pos 3: /tʃ/ + /i/ → resultado intermedio entre africada palatal y vocal cerrada anterior</li>
+                  <li>Pos 4: /e/ + (vacío) → /e/ (solo español aporta)</li>
+                </ul>
                 <p>
-                  Por ejemplo, al combinar <code className="font-mono">español "agua"</code> +{' '}
-                  <code className="font-mono">francés "eau"</code> con pesos iguales, las
-                  primeras posiciones (a-g-u) vienen del español (más largo), pero si el francés
-                  tuviera mayor peso, la forma se acortaría hacia "o".
-                </p>
-                <p>
-                  La voz se sintetiza con el motor TTS de tu navegador (Web Speech API). La
-                  calidad varía según el idioma: las lenguas mayores (es, fr, it, pt) suelen tener
-                  voces nativas, mientras que el latín, sardo u occitano usan fallback a lenguas
-                  cercanas.
+                  La voz del navegador (Web Speech API) pronuncia el resultado con la fonética
+                  de la lengua dominante, pero la <strong>forma misma es nueva</strong>: no
+                  existe en ninguna lengua romance real.
                 </p>
               </div>
             </CardContent>
