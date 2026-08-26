@@ -55,3 +55,14 @@ server.log
 
 # Local downloads (screenshots, generated files)
 /download/
+
+# Sandbox-specific files (no deben subirse a GitHub)
+/.zscripts/
+/Caddyfile
+/db/
+/examples/
+/mini-services/
+/tests/
+/.claude
+/.z-ai-config
+/prompt
