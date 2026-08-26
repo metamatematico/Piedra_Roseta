@@ -5,11 +5,13 @@ import { reconstructFromBases } from '@/lib/linguistics/pca';
 import { LANGUAGES, getLanguage } from '@/lib/linguistics/languages';
 import { PHONETIC_FEATURES, FEATURE_MATRIX } from '@/lib/linguistics/features';
 import { SWADESH } from '@/lib/linguistics/swadesh';
+import { PHONETICS, synthesizeHybrid, transcribeToPhonemes } from '@/lib/linguistics/phonetics';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
-import { Sparkles, Wand2, FlaskConical, Plus, X } from 'lucide-react';
+import { Sparkles, Wand2, FlaskConical, Plus, X, Volume2, Ear } from 'lucide-react';
+import { SpeakButton } from './speak-button';
 import { AssistantChat } from './assistant-chat';
 
 interface BaseWeight {
@@ -18,9 +20,17 @@ interface BaseWeight {
 }
 
 const DEFAULT_BASES: BaseWeight[] = [
-  { code: 'la', weight: 1.0 },
-  { code: 'es', weight: 0.5 },
-  { code: 'fr', weight: 0.3 },
+  { code: 'es', weight: 1.0 },
+  { code: 'fr', weight: 1.0 },
+];
+
+const PRESET_RECIPES = [
+  { name: 'Español ↔ Francés (50/50)', bases: [{ code: 'es', weight: 1 }, { code: 'fr', weight: 1 }] },
+  { name: 'Ibérico puro', bases: [{ code: 'es', weight: 1 }, { code: 'pt', weight: 1 }, { code: 'gl', weight: 0.5 }] },
+  { name: 'Galo + Ítalo', bases: [{ code: 'fr', weight: 1 }, { code: 'it', weight: 1 }] },
+  { name: 'Latín + moderno', bases: [{ code: 'la', weight: 1.5 }, { code: 'es', weight: 0.5 }, { code: 'fr', weight: 0.5 }] },
+  { name: 'Extremo oriente', bases: [{ code: 'ro', weight: 1 }, { code: 'it', weight: 0.5 }] },
+  { name: 'Sardo conservador', bases: [{ code: 'sc', weight: 1 }, { code: 'la', weight: 1 }] },
 ];
 
 export function SynthesizerView() {
@@ -28,17 +38,27 @@ export function SynthesizerView() {
   const [targetLang, setTargetLang] = useState<string>('ca');
   const [pickedWord, setPickedWord] = useState<string>('water');
 
-  // Síntesis
   const reconstruction = useMemo(
     () => reconstructFromBases(bases, targetLang),
     [bases, targetLang]
   );
 
-  // Reconstrucción del vector objetivo (para comparar)
-  const targetReconstruction = useMemo(
-    () => reconstructFromBases([{ code: targetLang, weight: 1 }], targetLang),
-    [targetLang]
+  const currentEntry = useMemo(
+    () => SWADESH.find(e => e.id === pickedWord) ?? SWADESH[0],
+    [pickedWord]
   );
+
+  // SÍNTESIS FONÉTICA REAL: combinar las formas léxicas
+  const hybridSynthesis = useMemo(() => {
+    const basesWithForms = bases
+      .filter(b => b.weight > 0)
+      .map(b => {
+        const form = b.code === 'la' ? currentEntry.latin : currentEntry.forms[b.code] ?? '';
+        return { code: b.code, form, weight: b.weight };
+      })
+      .filter(b => b.form.length > 0);
+    return synthesizeHybrid(basesWithForms);
+  }, [bases, currentEntry]);
 
   const addBase = (code: string) => {
     if (bases.find(b => b.code === code)) return;
@@ -53,21 +73,27 @@ export function SynthesizerView() {
     setBases(bases.map(b => (b.code === code ? { ...b, weight } : b)));
   };
 
-  // Para cada palabra Swadesh, predecir la "forma" sintetizada:
-  // tomamos la lengua base con mayor peso y la mezclamos con el sonido de las demás
-  const synthesizedWord = useMemo(() => {
-    const entry = SWADESH.find(e => e.id === pickedWord);
-    if (!entry) return '';
-    // heurística: si latín tiene peso > 0.5, mostramos forma latina + sufijo romance más cercano
-    // si no, mezclamos las dos lenguas de mayor peso
-    const sorted = [...bases].sort((a, b) => b.weight - a.weight);
-    const topLang = sorted[0];
-    if (!topLang) return '';
-    if (topLang.code === 'la') {
-      return entry.latin;
-    }
-    return entry.forms[topLang.code] ?? entry.latin;
-  }, [bases, pickedWord]);
+  const applyPreset = (preset: typeof PRESET_RECIPES[number]) => {
+    setBases(preset.bases.map(b => ({ ...b })));
+  };
+
+  // Transcripción fonética de cada lengua base (para mostrar)
+  const baseTranscriptions = useMemo(() => {
+    return bases.map(b => {
+      const form = b.code === 'la' ? currentEntry.latin : currentEntry.forms[b.code] ?? '';
+      const trans = transcribeToPhonemes(form, b.code);
+      const phon = PHONETICS[b.code];
+      return {
+        code: b.code,
+        form,
+        phonemes: trans.simplified,
+        ipa: trans.ipa,
+        bcp47: phon?.bcp47 ?? 'es-ES',
+        fallback: phon?.fallbackBcp47,
+        rules: trans.rules,
+      };
+    });
+  }, [bases, currentEntry]);
 
   return (
     <div className="space-y-6">
@@ -75,17 +101,36 @@ export function SynthesizerView() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FlaskConical className="h-5 w-5" />
-            Sintetizador Lineal de Lenguas
+            Sintetizador Fonético de Lenguas
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Si tratamos cada lengua como un <strong>vector</strong> en el espacio de rasgos,
-            podemos escribir <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">v_sintetizado = α₁·v_b1 + α₂·v_b2 + ...</code>
-            Igual que en álgebra lineal: si {`{b₁, b₂, ...}`} forman una <strong>base</strong>,
-            cualquier otra lengua se puede expresar como combinación lineal de ellas.
-            ¡Esto es la generación lineal de lenguas!
+            Combina <strong>linealmente</strong> las formas léxicas de varias lenguas-base.
+            El sistema aplica las reglas fonéticas de cada lengua, vota ponderadamente por
+            cada fonema según los pesos α, y produce una <strong>lengua híbrida pronunciable</strong>.
+            ¡Escúchala y compárala con las originales!
           </p>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Recetas predefinidas */}
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wide mb-3 text-muted-foreground">
+              Recetas rápidas
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {PRESET_RECIPES.map(r => (
+                <Button
+                  key={r.name}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => applyPreset(r)}
+                  className="text-xs"
+                >
+                  {r.name}
+                </Button>
+              ))}
+            </div>
+          </div>
+
           {/* Editor de bases */}
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -100,6 +145,7 @@ export function SynthesizerView() {
             <div className="space-y-3">
               {bases.map(b => {
                 const lang = getLanguage(b.code);
+                const phon = PHONETICS[b.code];
                 return (
                   <div
                     key={b.code}
@@ -138,7 +184,6 @@ export function SynthesizerView() {
               })}
             </div>
 
-            {/* Añadir bases */}
             <div className="mt-3 flex flex-wrap gap-2">
               {LANGUAGES
                 .filter(l => !bases.find(b => b.code === l.code))
@@ -158,30 +203,155 @@ export function SynthesizerView() {
             </div>
           </div>
 
-          {/* Fórmula matemática */}
-          <div className="rounded-lg bg-gradient-to-br from-stone-100 to-amber-50 dark:from-stone-900 dark:to-amber-950/30 p-4 border font-mono text-sm">
-            <div className="text-xs uppercase text-muted-foreground mb-2">
-              Combinación lineal actual
-            </div>
-            <div className="overflow-x-auto">
-              <span className="font-bold">v_sint</span> ={' '}
-              {bases.map((b, i) => (
-                <span key={b.code}>
-                  {i > 0 && <span className="text-muted-foreground"> + </span>}
-                  <span className="text-amber-700 dark:text-amber-400">{b.weight.toFixed(2)}</span>
-                  <span className="text-muted-foreground">·</span>
-                  <span className="font-bold">v<sub>{b.code}</sub></span>
-                </span>
+          {/* Selector de concepto */}
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wide mb-3">
+              Concepto a sintetizar
+            </h3>
+            <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-1">
+              {SWADESH.map(e => (
+                <Button
+                  key={e.id}
+                  variant={pickedWord === e.id ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setPickedWord(e.id)}
+                  className="text-xs"
+                >
+                  {e.gloss}
+                </Button>
               ))}
             </div>
           </div>
 
+          {/* Resultado: forma híbrida + audio */}
+          <Card className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 border-emerald-200 dark:border-emerald-900">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Sparkles className="h-4 w-4" />
+                Lengua híbrida sintetizada
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                «{currentEntry.gloss}» · etimón latino: <code className="font-mono">{currentEntry.latin}</code>
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Forma híbrida con audio */}
+              <div className="text-center py-4 rounded-lg bg-background/60 border">
+                <p className="text-xs uppercase text-muted-foreground mb-2">
+                  Forma sintetizada
+                </p>
+                <div className="flex items-center justify-center gap-3 mb-2">
+                  <p className="font-serif text-4xl">{hybridSynthesis.hybridForm || '—'}</p>
+                  <SpeakButton
+                    text={hybridSynthesis.hybridForm}
+                    lang={hybridSynthesis.bcp47Guess}
+                    size="lg"
+                    variant="default"
+                  />
+                </div>
+                <p className="font-mono text-sm text-emerald-700 dark:text-emerald-400">
+                  {hybridSynthesis.hybridIPA}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Pronunciada con voz {hybridSynthesis.bcp47Guess}
+                </p>
+              </div>
+
+              {/* Comparación: cada lengua base + la híbrida */}
+              <div>
+                <p className="text-xs uppercase text-muted-foreground mb-2">
+                  Comparación fonética
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {baseTranscriptions.map(t => {
+                    const lang = getLanguage(t.code);
+                    return (
+                      <div
+                        key={t.code}
+                        className="rounded border p-3 bg-background/60"
+                        style={{ borderLeftWidth: '4px', borderLeftColor: lang.color }}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-semibold flex items-center gap-1">
+                            {lang.flag} {lang.name}
+                          </span>
+                          <span className="font-mono text-xs text-muted-foreground">
+                            α = {bases.find(b => b.code === t.code)?.weight.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex-1">
+                            <p className="font-serif text-xl">{t.form}</p>
+                            <p className="font-mono text-xs text-muted-foreground">
+                              /{t.phonemes}/
+                            </p>
+                          </div>
+                          <SpeakButton
+                            text={t.form}
+                            lang={t.bcp47}
+                            fallbackLang={t.fallback}
+                            rate={0.85}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {/* Celda híbrida destacada */}
+                  <div
+                    className="rounded border-2 border-emerald-400 p-3 bg-emerald-50 dark:bg-emerald-950/30"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-semibold flex items-center gap-1">
+                        ✨ Híbrido
+                      </span>
+                      <span className="font-mono text-xs text-emerald-700 dark:text-emerald-400">
+                        síntesis
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex-1">
+                        <p className="font-serif text-xl">{hybridSynthesis.hybridForm || '—'}</p>
+                        <p className="font-mono text-xs text-emerald-700 dark:text-emerald-400">
+                          {hybridSynthesis.hybridIPA}
+                        </p>
+                      </div>
+                      <SpeakButton
+                        text={hybridSynthesis.hybridForm}
+                        lang={hybridSynthesis.bcp47Guess}
+                        rate={0.85}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Reglas aplicadas */}
+              {hybridSynthesis.rules.length > 0 && (
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground mb-2 flex items-center gap-1">
+                    <Wand2 className="h-3 w-3" /> Reglas de síntesis (votación ponderada)
+                  </p>
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {hybridSynthesis.rules.slice(0, 8).map((r, i) => (
+                      <div
+                        key={i}
+                        className="text-xs font-mono p-2 rounded bg-background/60 border"
+                      >
+                        <span className="text-muted-foreground">{r.reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Lengua objetivo */}
           <div>
             <h3 className="text-sm font-semibold uppercase tracking-wide mb-3">
-              Lengua a aproximar
+              Comparar con lengua real
             </h3>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 mb-3">
               {LANGUAGES.map(lang => (
                 <Button
                   key={lang.code}
@@ -195,103 +365,66 @@ export function SynthesizerView() {
                 </Button>
               ))}
             </div>
-          </div>
-
-          {/* Resultado: comparación de vectores */}
-          <Card className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 border-emerald-200 dark:border-emerald-900">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Sparkles className="h-4 w-4" />
-                Resultado de la síntesis
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded-lg border p-4 bg-muted/30">
+              <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs uppercase text-muted-foreground mb-2">
-                    Error de reconstrucción
+                  <p className="text-xs uppercase text-muted-foreground">
+                    {getLanguage(targetLang).name} · «{currentEntry.gloss}»
                   </p>
-                  <p className="text-4xl font-bold font-mono text-emerald-700 dark:text-emerald-400">
+                  <p className="font-serif text-3xl">
+                    {targetLang === 'la' ? currentEntry.latin : currentEntry.forms[targetLang]}
+                  </p>
+                </div>
+                <SpeakButton
+                  text={targetLang === 'la' ? currentEntry.latin : currentEntry.forms[targetLang]}
+                  lang={PHONETICS[targetLang]?.bcp47 ?? 'es-ES'}
+                  fallbackLang={PHONETICS[targetLang]?.fallbackBcp47}
+                  rate={0.85}
+                  size="lg"
+                  variant="default"
+                />
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground">Error de reconstrucción</p>
+                  <p className="font-mono text-lg">
                     {reconstruction.reconstructionError.toFixed(3)}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    distancia euclidiana ||v_sint − v_{targetLang}||
-                    {' '}
-                    {reconstruction.reconstructionError < 0.5 ? '★ excelente' : ''}
-                    {reconstruction.reconstructionError >= 0.5 && reconstruction.reconstructionError < 1.0 ? 'aceptable' : ''}
-                    {reconstruction.reconstructionError >= 1.0 ? 'pobre' : ''}
-                  </p>
                 </div>
                 <div>
-                  <p className="text-xs uppercase text-muted-foreground mb-2">
-                    Idioma predicho
+                  <p className="text-xs uppercase text-muted-foreground">
+                    ¿La híbrida se parece?
                   </p>
-                  <p className="text-3xl font-bold">{getLanguage(targetLang).flag} {getLanguage(targetLang).name}</p>
+                  <p className="text-sm">
+                    {reconstruction.reconstructionError < 0.5 ? '★ Muy parecida' :
+                     reconstruction.reconstructionError < 1.0 ? 'Aproximada' : 'Divergente'}
+                  </p>
                 </div>
               </div>
+            </div>
+          </div>
 
-              {/* Tabla comparativa de rasgos */}
-              <div>
-                <p className="text-xs uppercase text-muted-foreground mb-2">
-                  Comparación rasgo por rasgo
+          {/* Aviso pedagógico */}
+          <Card className="bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900">
+            <CardContent className="pt-6 flex items-start gap-3">
+              <Ear className="h-5 w-5 flex-shrink-0 text-blue-600 dark:text-blue-400 mt-0.5" />
+              <div className="text-sm text-muted-foreground space-y-2">
+                <p>
+                  <strong className="text-foreground">¿Qué estás escuchando?</strong> La forma
+                  híbrida es una <em>combinación lineal real</em>: para cada posición de fonema,
+                  el sistema vota ponderadamente entre las lenguas-base según sus pesos α.
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 max-h-64 overflow-y-auto">
-                  {PHONETIC_FEATURES.map((f, i) => {
-                    const synth = reconstruction.reconstructedFeatures[f.id];
-                    const target = FEATURE_MATRIX[targetLang][i];
-                    const diff = Math.abs(synth - target);
-                    return (
-                      <div
-                        key={f.id}
-                        className="flex items-center gap-2 p-1.5 rounded border text-xs"
-                        style={{
-                          backgroundColor: diff < 0.2 ? 'rgba(16,185,129,0.1)' : diff < 0.5 ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.1)',
-                        }}
-                      >
-                        <span className="flex-1 truncate" title={f.description}>{f.name}</span>
-                        <span className="font-mono">
-                          {synth.toFixed(2)} vs {target.toFixed(1)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Síntesis léxica */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Wand2 className="h-4 w-4" />
-                Síntesis léxica (heurística)
-              </CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Dada la combinación actual, «predice» la forma léxica para un concepto.
-                La lengua con mayor peso determina la forma principal.
-              </p>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2 mb-4">
-                {SWADESH.map(e => (
-                  <Button
-                    key={e.id}
-                    variant={pickedWord === e.id ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setPickedWord(e.id)}
-                  >
-                    {e.gloss}
-                  </Button>
-                ))}
-              </div>
-              <div className="rounded-lg bg-muted/50 p-4 text-center">
-                <p className="text-xs uppercase text-muted-foreground mb-1">
-                  «{SWADESH.find(e => e.id === pickedWord)?.gloss}» sintetizado
+                <p>
+                  Por ejemplo, al combinar <code className="font-mono">español "agua"</code> +{' '}
+                  <code className="font-mono">francés "eau"</code> con pesos iguales, las
+                  primeras posiciones (a-g-u) vienen del español (más largo), pero si el francés
+                  tuviera mayor peso, la forma se acortaría hacia "o".
                 </p>
-                <p className="font-serif text-3xl">{synthesizedWord}</p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  (basado en la lengua con mayor peso α)
+                <p>
+                  La voz se sintetiza con el motor TTS de tu navegador (Web Speech API). La
+                  calidad varía según el idioma: las lenguas mayores (es, fr, it, pt) suelen tener
+                  voces nativas, mientras que el latín, sardo u occitano usan fallback a lenguas
+                  cercanas.
                 </p>
               </div>
             </CardContent>
@@ -303,6 +436,7 @@ export function SynthesizerView() {
         context={{
           tab: 'Sintetizador',
           selectedLanguage: targetLang,
+          selectedConcept: pickedWord,
         }}
       />
     </div>

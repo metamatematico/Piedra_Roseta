@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Languages, BookOpen, ArrowRight } from 'lucide-react';
 import { AssistantChat } from './assistant-chat';
+import { SpeakButton } from './speak-button';
+import { PHONETICS } from '@/lib/linguistics/phonetics';
 
 export function RosettaView() {
   const [selectedField, setSelectedField] = useState<string>('naturaleza');
@@ -216,6 +218,7 @@ function RosettaColumn({
   isAncestor?: boolean;
 }) {
   const lang = getLanguage(code);
+  const phon = PHONETICS[code];
   return (
     <div
       className={`p-5 border-r border-b last:border-r-0 transition-colors hover:bg-stone-50 dark:hover:bg-stone-900/30 ${
@@ -229,10 +232,19 @@ function RosettaColumn({
             {lang.name}
           </span>
         </div>
-        <span
-          className="w-2.5 h-2.5 rounded-full"
-          style={{ backgroundColor: lang.color }}
-        />
+        <div className="flex items-center gap-2">
+          <SpeakButton
+            text={form}
+            lang={phon?.bcp47 ?? 'es-ES'}
+            fallbackLang={phon?.fallbackBcp47}
+            rate={0.85}
+            size="sm"
+          />
+          <span
+            className="w-2.5 h-2.5 rounded-full"
+            style={{ backgroundColor: lang.color }}
+          />
+        </div>
       </div>
       <p className="font-serif text-2xl mb-1 break-words">
         {form}
