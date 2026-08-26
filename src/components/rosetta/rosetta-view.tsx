@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Languages, BookOpen, ArrowRight } from 'lucide-react';
+import { AssistantChat } from './assistant-chat';
 
 export function RosettaView() {
   const [selectedField, setSelectedField] = useState<string>('naturaleza');
@@ -194,6 +195,13 @@ export function RosettaView() {
           </p>
         </CardContent>
       </Card>
+
+      <AssistantChat
+        context={{
+          tab: 'Piedra Roseta',
+          selectedConcept: selectedConceptId,
+        }}
+      />
     </div>
   );
 }

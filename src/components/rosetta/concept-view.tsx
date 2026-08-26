@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BookOpen, Sigma, Layers, Globe, ArrowRight } from 'lucide-react';
+import { AssistantChat } from './assistant-chat';
 
 export function ConceptView() {
   return (
@@ -195,6 +196,8 @@ export function ConceptView() {
           </ol>
         </CardContent>
       </Card>
+
+      <AssistantChat context={{ tab: 'Concepto' }} />
     </div>
   );
 }

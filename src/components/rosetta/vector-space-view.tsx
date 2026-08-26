@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Box, Sigma, TrendingUp } from 'lucide-react';
+import { AssistantChat } from './assistant-chat';
 
 export function VectorSpaceView() {
   const pca = useMemo(() => computePCA(), []);
@@ -205,6 +206,13 @@ export function VectorSpaceView() {
           <DistanceMatrix selected={selectedLang} onSelect={setSelectedLang} />
         </CardContent>
       </Card>
+
+      <AssistantChat
+        context={{
+          tab: 'Espacio Vectorial',
+          selectedLanguage: selectedLang,
+        }}
+      />
     </div>
   );
 }

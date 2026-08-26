@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Sparkles, Wand2, FlaskConical, Plus, X } from 'lucide-react';
+import { AssistantChat } from './assistant-chat';
 
 interface BaseWeight {
   code: string;
@@ -297,6 +298,13 @@ export function SynthesizerView() {
           </Card>
         </CardContent>
       </Card>
+
+      <AssistantChat
+        context={{
+          tab: 'Sintetizador',
+          selectedLanguage: targetLang,
+        }}
+      />
     </div>
   );
 }
