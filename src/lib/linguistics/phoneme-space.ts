@@ -1,212 +1,26 @@
 // Espacio de rasgos fonéticos para interpolación real.
-// Cada fonema es un vector de rasgos articulatorios:
-//   - sonoridad (0=sordo, 1=sonoro)
-//   - nasalidad (0=oral, 1=nasal)
-//   - continuante (0=stop/africada, 1=fricap/approx)
-//   - lugar de articulación (escala 0-10: 1=labial, 3=dental, 5=alveolar, 7=postalveolar, 9=velar, 10=uvular)
-//   - altura vocálica (0=abierta, 1=cerrada; solo para vocales)
-//   - anterioridad (0=posterior, 1=anterior; solo para vocales)
-//   - redondeamiento (0=no redondeada, 1=redondeada; solo para vocales)
-//
-// Esto permite INTERPOLAR fonemas: si combinamos /o/ (velar, semiabierta, redondeada)
-// con /u/ (velar, cerrada, redondeada) al 50%, obtenemos un fonema intermedio
-// (semi-cerrada redondeada) que se aproxima a /o̞/ o /ʊ/.
+// Cada fonema es un vector de rasgos articulatorios (definidos en phoneme-inventory.ts).
+// Este módulo contiene la lógica de interpolación y síntesis híbrida.
 
-export type PhonemeClass = 'vowel' | 'consonant';
+import { PhonemeFeatures, PHONEME_MAP, PHONEME_INVENTORY } from './phoneme-inventory';
+import { graphemesToPhonemes } from './grapheme-to-phoneme';
 
-export interface PhonemeFeatures {
-  symbol: string;        // IPA simplificada para TTS
-  class: PhonemeClass;
-  sonorant: number;      // 0=sordo, 1=sonoro
-  nasal: number;         // 0=oral, 1=nasal
-  continuant: number;    // 0=stop, 0.5=africada, 1=fricativa/aproximante
-  place: number;         // 1=labial, 3=dental, 5=alveolar, 7=palatal, 9=velar, 10=uvular
-  vowelHeight?: number;  // 0=abierta, 0.5=media, 1=cerrada
-  vowelBack?: number;    // 0=anterior, 1=posterior
-  vowelRound?: number;   // 0=no redondeada, 1=redondeada
-  // Para TTS: símbolo alternativo que el navegador puede pronunciar
-  ttsFallback?: string;
-}
-
-// Tabla de fonemas de referencia con sus rasgos.
-// Esta es la "base ortonormal" del espacio fonético romance.
-export const PHONEME_INVENTORY: PhonemeFeatures[] = [
-  // ---------- Vocales ----------
-  { symbol: 'a',  class: 'vowel', sonorant: 1, nasal: 0, continuant: 1, place: 5, vowelHeight: 0,    vowelBack: 0.5, vowelRound: 0 },
-  { symbol: 'ɛ',  class: 'vowel', sonorant: 1, nasal: 0, continuant: 1, place: 5, vowelHeight: 0.4,  vowelBack: 0.3, vowelRound: 0 },
-  { symbol: 'e',  class: 'vowel', sonorant: 1, nasal: 0, continuant: 1, place: 5, vowelHeight: 0.6,  vowelBack: 0.3, vowelRound: 0 },
-  { symbol: 'ə',  class: 'vowel', sonorant: 1, nasal: 0, continuant: 1, place: 5, vowelHeight: 0.5,  vowelBack: 0.5, vowelRound: 0 },
-  { symbol: 'i',  class: 'vowel', sonorant: 1, nasal: 0, continuant: 1, place: 5, vowelHeight: 1,    vowelBack: 0,   vowelRound: 0 },
-  { symbol: 'ɔ',  class: 'vowel', sonorant: 1, nasal: 0, continuant: 1, place: 5, vowelHeight: 0.4,  vowelBack: 0.7, vowelRound: 1 },
-  { symbol: 'o',  class: 'vowel', sonorant: 1, nasal: 0, continuant: 1, place: 5, vowelHeight: 0.6,  vowelBack: 0.7, vowelRound: 1 },
-  { symbol: 'u',  class: 'vowel', sonorant: 1, nasal: 0, continuant: 1, place: 5, vowelHeight: 1,    vowelBack: 1,   vowelRound: 1 },
-  { symbol: 'y',  class: 'vowel', sonorant: 1, nasal: 0, continuant: 1, place: 5, vowelHeight: 1,    vowelBack: 0,   vowelRound: 1 }, // francesa
-  { symbol: 'ɨ',  class: 'vowel', sonorant: 1, nasal: 0, continuant: 1, place: 5, vowelHeight: 1,    vowelBack: 0.5, vowelRound: 0 }, // rumana
-  // Vocales nasales (nasal=1)
-  { symbol: 'ɑ̃',  class: 'vowel', sonorant: 1, nasal: 1, continuant: 1, place: 5, vowelHeight: 0,    vowelBack: 0.7, vowelRound: 0 },
-  { symbol: 'ɛ̃',  class: 'vowel', sonorant: 1, nasal: 1, continuant: 1, place: 5, vowelHeight: 0.4,  vowelBack: 0.3, vowelRound: 0 },
-  { symbol: 'ɔ̃',  class: 'vowel', sonorant: 1, nasal: 1, continuant: 1, place: 5, vowelHeight: 0.4,  vowelBack: 0.7, vowelRound: 1 },
-  { symbol: 'œ̃',  class: 'vowel', sonorant: 1, nasal: 1, continuant: 1, place: 5, vowelHeight: 0.4,  vowelBack: 0.5, vowelRound: 1 },
-
-  // ---------- Consonantes ----------
-  // Labiales
-  { symbol: 'p',  class: 'consonant', sonorant: 0, nasal: 0, continuant: 0,   place: 1 },
-  { symbol: 'b',  class: 'consonant', sonorant: 1, nasal: 0, continuant: 0,   place: 1 },
-  { symbol: 'm',  class: 'consonant', sonorant: 1, nasal: 1, continuant: 0,   place: 1 },
-  { symbol: 'f',  class: 'consonant', sonorant: 0, nasal: 0, continuant: 1,   place: 1 },
-  { symbol: 'v',  class: 'consonant', sonorant: 1, nasal: 0, continuant: 1,   place: 1 },
-  { symbol: 'w',  class: 'consonant', sonorant: 1, nasal: 0, continuant: 1,   place: 1 }, // semivocal
-  // Dentales
-  { symbol: 't',  class: 'consonant', sonorant: 0, nasal: 0, continuant: 0,   place: 3 },
-  { symbol: 'd',  class: 'consonant', sonorant: 1, nasal: 0, continuant: 0,   place: 3 },
-  { symbol: 'n',  class: 'consonant', sonorant: 1, nasal: 1, continuant: 0,   place: 3 },
-  { symbol: 'θ',  class: 'consonant', sonorant: 0, nasal: 0, continuant: 1,   place: 3 }, // española z
-  { symbol: 's',  class: 'consonant', sonorant: 0, nasal: 0, continuant: 1,   place: 3 },
-  { symbol: 'z',  class: 'consonant', sonorant: 1, nasal: 0, continuant: 1,   place: 3 },
-  { symbol: 'l',  class: 'consonant', sonorant: 1, nasal: 0, continuant: 1,   place: 3 }, // lateral
-  { symbol: 'ɾ',  class: 'consonant', sonorant: 1, nasal: 0, continuant: 0.5, place: 3 }, // vibrante simple
-  { symbol: 'r',  class: 'consonant', sonorant: 1, nasal: 0, continuant: 0.5, place: 3 }, // vibrante múltiple
-  // Alveolopalatales / postalveolares
-  { symbol: 'ʃ',  class: 'consonant', sonorant: 0, nasal: 0, continuant: 1,   place: 7 },
-  { symbol: 'ʒ',  class: 'consonant', sonorant: 1, nasal: 0, continuant: 1,   place: 7 },
-  { symbol: 'tʃ', class: 'consonant', sonorant: 0, nasal: 0, continuant: 0.5, place: 7 }, // africada ch
-  { symbol: 'dʒ', class: 'consonant', sonorant: 1, nasal: 0, continuant: 0.5, place: 7 },
-  // Palatales
-  { symbol: 'ɲ',  class: 'consonant', sonorant: 1, nasal: 1, continuant: 0,   place: 7 }, // ñ
-  { symbol: 'ʎ',  class: 'consonant', sonorant: 1, nasal: 0, continuant: 1,   place: 7 }, // ll
-  { symbol: 'j',  class: 'consonant', sonorant: 1, nasal: 0, continuant: 1,   place: 7 }, // semivocal
-  // Velares
-  { symbol: 'k',  class: 'consonant', sonorant: 0, nasal: 0, continuant: 0,   place: 9 },
-  { symbol: 'g',  class: 'consonant', sonorant: 1, nasal: 0, continuant: 0,   place: 9 },
-  { symbol: 'ŋ',  class: 'consonant', sonorant: 1, nasal: 1, continuant: 0,   place: 9 },
-  { symbol: 'x',  class: 'consonant', sonorant: 0, nasal: 0, continuant: 1,   place: 9 }, // jota española
-  { symbol: 'ɣ',  class: 'consonant', sonorant: 1, nasal: 0, continuant: 1,   place: 9 }, // g suave
-  // Uvular
-  { symbol: 'ʁ',  class: 'consonant', sonorant: 1, nasal: 0, continuant: 1,   place: 10 }, // R francesa
-  { symbol: 'R',  class: 'consonant', sonorant: 1, nasal: 0, continuant: 0.5, place: 10 }, // R portuguesa vibrante
-  // Glotal
-  { symbol: 'h',  class: 'consonant', sonorant: 0, nasal: 0, continuant: 1,   place: 10 },
-];
-
-// Mapa de símbolos de fonemas a sus rasgos
-const PHONEME_MAP: Record<string, PhonemeFeatures> = Object.fromEntries(
-  PHONEME_INVENTORY.map(p => [p.symbol, p])
-);
-
-// ---------- Mapeo grafema → fonema (por idioma) ----------
-// Tabla simplificada: para cada letra del alfabeto romance, su fonema base.
-// Las reglas específicas por idioma ya viven en phonetics.ts; aquí damos el
-// mapeo a fonemas IPA universales.
-
-const DEFAULT_GRAPHEME_TO_PHONEME: Record<string, string> = {
-  // Vocales
-  a: 'a', á: 'a', à: 'a', â: 'a', ä: 'a',
-  e: 'e', é: 'e', è: 'ɛ', ê: 'ɛ', ë: 'e',
-  i: 'i', í: 'i', ï: 'i', î: 'i',
-  o: 'o', ó: 'o', ò: 'ɔ', ô: 'o', ö: 'o',
-  u: 'u', ú: 'u', ù: 'u', ü: 'y', û: 'u',
-  y: 'i', // default
-  // Consonantes simples
-  b: 'b', c: 'k', d: 'd', f: 'f', g: 'g',
-  h: '',  // muda en su mayoría
-  j: 'x', // española por defecto
-  k: 'k', l: 'l', m: 'm', n: 'n',
-  p: 'p', q: 'k', r: 'r', s: 's', t: 't',
-  v: 'b', w: 'w', x: 'ks', z: 'θ',
-  // Dígrafos (se procesan antes que las letras sueltas)
-  'ch': 'tʃ',
-  'sh': 'ʃ',
-  'zh': 'ʒ',
-  'll': 'ʎ',
-  'ny': 'ɲ',
-  'ñ': 'ɲ',
-  'nh': 'ɲ',
-  'lh': 'ʎ',
-  'gn': 'ɲ',
-  'qu': 'k',
-  'gu': 'g',
-  'ce': 'se',
-  'ci': 'si',
-  'ge': 'x',
-  'gi': 'x',
-  'ja': 'x',
-  'je': 'x',
-  'ji': 'x',
-  'jo': 'x',
-  'ju': 'x',
-  'rr': 'r',
-  'ss': 's',
-  'ç': 's',
-  // Francesas
-  'eau': 'o',
-  'ai': 'e',
-  'ei': 'e',
-  'au': 'o',
-  'oi': 'wa',
-  'ou': 'u',
-  'eu': 'ø',
-  'œ': 'ø',
-  // Nasales francesas (se manejan en reglas)
-  'an': 'ɑ̃',
-  'en': 'ɑ̃',
-  'in': 'ɛ̃',
-  'on': 'ɔ̃',
-  'un': 'œ̃',
-  'ain': 'ɛ̃',
-  // Portuguese
-  'ão': 'ɐ̃',
-  'ãe': 'ɐ̃',
-  'õe': 'õ',
-  'nh': 'ɲ',
-  'lh': 'ʎ',
-  // Rumanas
-  'ă': 'ə',
-  'â': 'ɨ',
-  'î': 'ɨ',
-  'ș': 'ʃ',
-  'ț': 'ts',
-};
-
-// Convierte una forma escrita a una secuencia de fonemas IPA.
-export function graphemesToPhonemes(form: string, _langCode: string): string[] {
-  const lower = form.toLowerCase();
-  const phonemes: string[] = [];
-  let i = 0;
-  while (i < lower.length) {
-    // Probar dígrafos/trígrafos primero (hasta 3 chars)
-    let matched = false;
-    for (let len = Math.min(3, lower.length - i); len >= 1; len--) {
-      const chunk = lower.slice(i, i + len);
-      const ph = DEFAULT_GRAPHEME_TO_PHONEME[chunk];
-      if (ph !== undefined) {
-        if (ph) phonemes.push(ph);
-        i += len;
-        matched = true;
-        break;
-      }
-    }
-    if (!matched) {
-      // Carácter desconocido: saltar
-      i++;
-    }
-  }
-  return phonemes;
-}
+// Re-export para compatibilidad con código existente
+export { graphemesToPhonemes };
+export type { PhonemeFeatures } from './phoneme-inventory';
+export { PHONEME_MAP, PHONEME_INVENTORY } from './phoneme-inventory';
 
 // ---------- Interpolación de fonemas ----------
 
 export interface InterpolatedPhoneme {
-  symbol: string;          // símbolo IPA del fonema más cercano al resultado
-  ttsSymbol: string;       // símbolo para TTS (a veces distinto a IPA)
+  symbol: string;
+  ttsSymbol: string;
   features: PhonemeFeatures;
-  isInterpolated: boolean; // true si el resultado es una mezcla, no un fonema puro
-  blendDescription: string;// explicación humana
-  // Para visualización: qué se mezcló
+  isInterpolated: boolean;
+  blendDescription: string;
   sources: { symbol: string; weight: number }[];
 }
 
-// Interpola linealmente varios fonemas según sus pesos.
-// El resultado es un vector de rasgos que luego se mapea al fonema más cercano.
 export function interpolatePhonemes(
   candidates: { symbol: string; weight: number }[]
 ): InterpolatedPhoneme {
@@ -215,7 +29,6 @@ export function interpolatePhonemes(
     .filter(c => c.feat && c.weight > 0);
 
   if (valid.length === 0) {
-    // Devolver algo neutral
     return {
       symbol: 'ə',
       ttsSymbol: 'e',
@@ -226,12 +39,10 @@ export function interpolatePhonemes(
     };
   }
 
-  // Normalizar pesos
   const total = valid.reduce((s, c) => s + c.weight, 0) || 1;
 
-  // Interpolación lineal de cada rasgo
   const blended: PhonemeFeatures = {
-    symbol: '',  // se calculará abajo
+    symbol: '',
     class: valid[0].feat.class,
     sonorant: 0, nasal: 0, continuant: 0, place: 0,
   };
@@ -252,14 +63,10 @@ export function interpolatePhonemes(
     }
   }
 
-  // Encontrar el fonema del inventario más cercano al vector interpolado
   const closest = findClosestPhoneme(blended);
-
-  // ¿Es una mezcla real (interpola entre fonemas distintos)?
   const uniqueSymbols = Array.from(new Set(valid.map(c => c.symbol)));
   const isInterpolated = uniqueSymbols.length > 1;
 
-  // Descripción humana
   let blendDescription = '';
   if (isInterpolated) {
     const parts = valid
@@ -281,7 +88,6 @@ export function interpolatePhonemes(
   };
 }
 
-// Distancia euclidiana entre dos vectores de rasgos.
 function featureDistance(a: PhonemeFeatures, b: PhonemeFeatures): number {
   const keys: (keyof PhonemeFeatures)[] = [
     'sonorant', 'nasal', 'continuant', 'place',
@@ -297,7 +103,6 @@ function featureDistance(a: PhonemeFeatures, b: PhonemeFeatures): number {
 }
 
 function findClosestPhoneme(target: PhonemeFeatures): PhonemeFeatures {
-  // Buscar solo en la misma clase (vocal/consonante)
   const candidates = PHONEME_INVENTORY.filter(p => p.class === target.class);
   let best = candidates[0];
   let bestDist = Infinity;
@@ -311,60 +116,24 @@ function findClosestPhoneme(target: PhonemeFeatures): PhonemeFeatures {
   return best;
 }
 
-// ---------- Síntesis híbrida (versión interpolada) ----------
+// ---------- Síntesis híbrida ----------
 
 export interface HybridPhoneticResult {
-  // Forma híbrida como secuencia de fonemas
   phonemes: InterpolatedPhoneme[];
-  // Para TTS: secuencia de símbolos concatenados
   ttsString: string;
-  // Forma escrita (aproximada) basada en los símbolos
   writtenForm: string;
-  // IPA
   ipaString: string;
-  // Mejor BCP-47 para TTS
   bcp47Guess: string;
-  // Descripción del proceso
   summary: string;
-  // Por cada lengua: su forma original + fonemas
   perLanguage: { code: string; form: string; phonemes: string[] }[];
 }
 
-// Longitud objetivo: media ponderada de las longitudes de las lenguas base
-function computeTargetLength(bases: { phonemes: string[]; weight: number }[]): number {
-  const totalW = bases.reduce((s, b) => s + b.weight, 0) || 1;
-  const avg = bases.reduce((s, b) => s + b.phonemes.length * b.weight, 0) / totalW;
-  return Math.max(1, Math.round(avg));
-}
-
-// Alinea las secuencias de fonemas por posición (alineación simple por índice).
-// En una versión más sofisticada usaríamos alineamiento dinámico (Needleman-Wunsch).
-function alignSequences(
-  sequences: string[][],
-  targetLength: number
-): string[][] {
-  if (sequences.length === 0) return [];
-  // Para cada posición 0..targetLength-1, recolectar el fonema de cada lengua
-  // Si la lengua tiene menos fonemas, repetir el último o dejar vacío
-  const aligned: string[][] = [];
-  for (let pos = 0; pos < targetLength; pos++) {
-    const atPos: string[] = [];
-    for (const seq of sequences) {
-      if (pos < seq.length) {
-        atPos.push(seq[pos]);
-      } else {
-        // Si la lengua se acabó, no contribuimos
-      }
-    }
-    aligned.push(atPos);
-  }
-  return aligned;
-}
+// Importa la alineación múltiple (Needleman-Wunsch) de alignment.ts
+import { alignMultipleSequences } from './alignment';
 
 export function synthesizeHybridPhonetic(
   bases: { code: string; form: string; weight: number }[]
 ): HybridPhoneticResult {
-  // 1. Convertir cada forma a fonemas
   const perLanguage = bases.map(b => ({
     code: b.code,
     form: b.form,
@@ -384,23 +153,19 @@ export function synthesizeHybridPhonetic(
     };
   }
 
-  // 2. Longitud objetivo (media ponderada)
-  const targetLength = computeTargetLength(perLanguage);
+  // Alineación múltiple con Needleman-Wunsch
+  const { aligned: alignedMatrix, length: alignedLength } =
+    alignMultipleSequences(perLanguage.map(p => p.phonemes));
 
-  // 3. Alinear por posición
-  const aligned = alignSequences(perLanguage.map(p => p.phonemes), targetLength);
-
-  // 4. Para cada posición, interpolar fonemas
+  // Interpolar fonema por fonema
   const interpolatedPhonemes: InterpolatedPhoneme[] = [];
-  for (let pos = 0; pos < aligned.length; pos++) {
-    const atPos = aligned[pos];
-    if (atPos.length === 0) continue;
-    // Recolectar candidatos con sus pesos
+  for (let pos = 0; pos < alignedLength; pos++) {
     const candidates: { symbol: string; weight: number }[] = [];
     for (let li = 0; li < perLanguage.length; li++) {
-      if (pos < perLanguage[li].phonemes.length) {
+      const symbol = alignedMatrix[li][pos];
+      if (symbol !== null) {
         candidates.push({
-          symbol: perLanguage[li].phonemes[pos],
+          symbol,
           weight: perLanguage[li].weight,
         });
       }
@@ -409,26 +174,13 @@ export function synthesizeHybridPhonetic(
     interpolatedPhonemes.push(interpolatePhonemes(candidates));
   }
 
-  // 5. Construir strings finales
-  const ttsString = interpolatedPhonemes
-    .map(p => p.ttsSymbol)
-    .join('');
+  const ttsString = interpolatedPhonemes.map(p => p.ttsSymbol).join('');
+  const ipaString = '/' + interpolatedPhonemes.map(p => p.symbol).join('') + '/';
+  const writtenForm = interpolatedPhonemes.map(p => phonemeToAscii(p.symbol)).join('');
 
-  const ipaString = '/' + interpolatedPhonemes
-    .map(p => p.symbol)
-    .join('') + '/';
-
-  // Forma escrita: usar representación ASCII de los fonemas
-  const writtenForm = interpolatedPhonemes
-    .map(p => phonemeToAscii(p.symbol))
-    .join('');
-
-  // BCP-47 de la lengua dominante
-  const totalWeight = perLanguage.reduce((s, p) => s + p.weight, 0) || 1;
   const dominant = perLanguage.slice().sort((a, b) => b.weight - a.weight)[0];
   const bcp47Guess = getBcp47ForLang(dominant.code);
 
-  // Resumen
   const interpolatedCount = interpolatedPhonemes.filter(p => p.isInterpolated).length;
   const summary = `${interpolatedPhonemes.length} fonemas · ${interpolatedCount} interpolados · dominante: ${dominant.code.toUpperCase()}`;
 
@@ -447,12 +199,11 @@ export function synthesizeHybridPhonetic(
   };
 }
 
-// Mapea un símbolo IPA a una representación ASCII amigable para TTS.
 function phonemeToAscii(symbol: string): string {
   const map: Record<string, string> = {
     'a': 'a', 'ɛ': 'e', 'e': 'e', 'ə': 'e', 'i': 'i',
-    'ɔ': 'o', 'o': 'o', 'u': 'u', 'y': 'u', 'ɨ': 'i',
-    'ɑ̃': 'an', 'ɛ̃': 'in', 'ɔ̃': 'on', 'œ̃': 'un',
+    'ɔ': 'o', 'o': 'o', 'u': 'u', 'y': 'u', 'ɨ': 'i', 'ø': 'eu',
+    'ɐ̃': 'an', 'õ': 'on', 'ɑ̃': 'an', 'ɛ̃': 'in', 'ɔ̃': 'on', 'œ̃': 'un',
     'p': 'p', 'b': 'b', 'm': 'm', 'f': 'f', 'v': 'v', 'w': 'u',
     't': 't', 'd': 'd', 'n': 'n', 'θ': 'z', 's': 's', 'z': 'z',
     'l': 'l', 'ɾ': 'r', 'r': 'r',

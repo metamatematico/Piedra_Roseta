@@ -7,9 +7,10 @@ import { RosettaView } from '@/components/rosetta/rosetta-view';
 import { VectorSpaceView } from '@/components/rosetta/vector-space-view';
 import { SynthesizerView } from '@/components/rosetta/synthesizer-view';
 import { LearnView } from '@/components/rosetta/learn-view';
+import { ResearchView } from '@/components/rosetta/research-view';
 import { SplashScreen } from '@/components/rosetta/splash-screen';
 import { LLMConfigButton } from '@/components/rosetta/llm-config-button';
-import { BookOpen, Languages, Box, FlaskConical, Brain } from 'lucide-react';
+import { BookOpen, Languages, Box, FlaskConical, Brain, Microscope } from 'lucide-react';
 
 const SPLASH_KEY = 'piedra-roseta-splash-seen';
 
@@ -39,10 +40,10 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-amber-50/30 via-stone-50 to-rose-50/30 dark:from-amber-950/10 dark:via-stone-950 dark:to-rose-950/10">
       {/* Header */}
-      <header className="border-b bg-gradient-to-r from-amber-50 via-stone-50 to-rose-50 dark:from-amber-950/20 dark:via-stone-950/20 dark:to-rose-950/20">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
+      <header className="border-b bg-gradient-to-r from-amber-50/80 via-stone-50/80 to-rose-50/80 dark:from-amber-950/20 dark:via-stone-950/20 dark:to-rose-950/20 backdrop-blur-sm sticky top-0 z-40">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <button
             onClick={replaySplash}
             className="flex items-center gap-3 group"
@@ -50,7 +51,7 @@ export default function Home() {
           >
             <span className="text-3xl group-hover:scale-110 transition-transform">🪨</span>
             <div className="text-left">
-              <h1 className="font-serif text-xl sm:text-2xl font-bold tracking-tight leading-none">
+              <h1 className="font-serif text-xl sm:text-2xl font-bold tracking-tight leading-none bg-gradient-to-r from-amber-700 via-stone-800 to-rose-700 bg-clip-text text-transparent">
                 Sistema Piedra Roseta
               </h1>
               <p className="text-[10px] sm:text-xs text-muted-foreground">
@@ -68,7 +69,7 @@ export default function Home() {
       {/* Main */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
         <Tabs value={tab} onValueChange={setTab} className="space-y-6">
-          <TabsList className="grid grid-cols-2 sm:grid-cols-5 w-full">
+          <TabsList className="grid grid-cols-3 sm:grid-cols-6 w-full gap-1">
             <TabsTrigger value="concept" className="gap-1.5">
               <BookOpen className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Concepto</span>
@@ -89,6 +90,10 @@ export default function Home() {
               <Brain className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Aprender</span>
             </TabsTrigger>
+            <TabsTrigger value="research" className="gap-1.5">
+              <Microscope className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Investigación</span>
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="concept" className="mt-0">
@@ -106,11 +111,14 @@ export default function Home() {
           <TabsContent value="learn" className="mt-0">
             <LearnView />
           </TabsContent>
+          <TabsContent value="research" className="mt-0">
+            <ResearchView />
+          </TabsContent>
         </Tabs>
       </main>
 
       {/* Footer */}
-      <footer className="border-t mt-auto bg-muted/30">
+      <footer className="border-t mt-auto bg-gradient-to-r from-amber-50/50 via-stone-50/50 to-rose-50/50 dark:from-amber-950/10 dark:via-stone-950/10 dark:to-rose-950/10">
         <div className="max-w-6xl mx-auto px-4 py-6 text-center text-xs text-muted-foreground space-y-1">
           <p>
             <strong>Sistema Piedra Roseta</strong> · Lingüística matemática interactiva
@@ -121,7 +129,7 @@ export default function Home() {
             con asistencia de <strong>GLM (Z.ai)</strong>
           </p>
           <p className="opacity-70">
-            PCA implementado desde cero · Datos basados en WALS, PHOIBLE y listas de Swadesh
+            PCA + Needleman-Wunsch + Interpolación fonética vectorial · {80}+ conceptos Swadesh · 10 lenguas romances
           </p>
         </div>
       </footer>
